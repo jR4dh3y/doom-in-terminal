@@ -15,24 +15,15 @@ Terminal Doom is a simple terminal-based game inspired by classic first-person s
 ## Building the Project
 1. Clone the repository or copy the project files to your local machine.
 2. Navigate to the project directory:
+3. Run the following commands:
    ```bash
-   cd /path/to/project
-   ```
-3. Create a build directory and navigate to it:
-   ```bash
-   mkdir build && cd build
-   ```
-4. Run CMake to configure the project:
-   ```bash
-   cmake ..
-   ```
-5. Build the project:
-   ```bash
-   make
+   cmake -B build -S .
+   
+   cmake --build build
    ```
 
 ## Running the Game
-After building the project, you can run the game using the following command:
+After building the project, you can run the game using the following command(in the build dir):
 ```bash
 ./doom_terminal
 ```
@@ -43,12 +34,6 @@ After building the project, you can run the game using the following command:
 - `A`: Rotate left.
 - `D`: Rotate right.
 - `Q`: Quit the game.
-
-## Project Structure
-- `src/`: Contains the source code for the game.
-- `include/`: Contains the header files.
-- `build/`: Directory for build files (created during the build process).
-- `CMakeLists.txt`: CMake configuration file.
 
 ## License
 This project is for educational purposes and does not have a specific license. Feel free to modify and use it as needed.
