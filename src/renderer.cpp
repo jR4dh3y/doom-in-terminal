@@ -86,7 +86,6 @@ void Renderer::performDDA(const Map& map, float rayDirX, float rayDirY, float st
             hit.hit = true;
             hit.mapX = mapX;
             hit.mapY = mapY;
-            hit.texNum = map.getCell(mapX, mapY) - 1; // Assuming wall types start from 1
         }
     }
 
@@ -106,14 +105,47 @@ void Renderer::performDDA(const Map& map, float rayDirX, float rayDirY, float st
     if (hit.side == 1 && rayDirY < 0) hit.texX = TEX_WIDTH - hit.texX - 1;
 }
 
+void Renderer::renderMinimap(const Player& player, const Map& map) {
+    const int minimapSize = 12;
+    const int minimapX = screenWidth - minimapSize - 2;
+    const int minimapY = 2;
+
+    // Draw minimap border
+    for (int y = 0; y < minimapSize + 2; y++) {
+        for (int x = 0; x < minimapSize + 2; x++) {
+            if (y == 0 || y == minimapSize + 1 || x == 0 || x == minimapSize + 1) {
+                mvaddch(minimapY + y, minimapX + x, '+');
+            }
+        }
+    }
+
+    // Draw map and player
+    for (int y = 0; y < minimapSize; y++) {
+        for (int x = 0; x < minimapSize; x++) {
+            int mapX = static_cast<int>(player.getX()) + x - minimapSize/2;
+            int mapY = static_cast<int>(player.getY()) + y - minimapSize/2;
+            
+            if (mapX >= 0 && mapX < map.getWidth() && mapY >= 0 && mapY < map.getHeight()) {
+                char ch = map.isWall(mapX, mapY) ? '#' : ' ';
+                mvaddch(minimapY + 1 + y, minimapX + 1 + x, ch);
+            }
+        }
+    }
+
+    // Draw player direction indicator
+    int playerScreenX = minimapX + 1 + minimapSize/2;
+    int playerScreenY = minimapY + 1 + minimapSize/2;
+    char dirChar = '>';
+    float angle = atan2(player.getDirY(), player.getDirX());
+    if (angle < -2.748f || angle > 2.748f) dirChar = '>';
+    else if (angle < -0.393f) dirChar = '^';
+    else if (angle < 1.963f) dirChar = '<';
+    else if (angle < 2.748f) dirChar = 'v';
+    mvaddch(playerScreenY, playerScreenX, dirChar);
+}
+
 void Renderer::render(const Player& player, const Map& map) {
-    // Initialize zBuffer for sprite rendering
-    if (!zBuffer) zBuffer = new float[screenWidth];
-
-    // Split screen into two equal parts
-    int gameViewWidth = screenWidth / 2; // Left half for game view
-
-    for (int x = 0; x < gameViewWidth; x++) {
+    for (int x = 0; x < screenWidth; x++) {
         // Calculate ray direction
         float rayDirX, rayDirY;
         calculateRay(player, x, rayDirX, rayDirY);
@@ -122,7 +154,7 @@ void Renderer::render(const Player& player, const Map& map) {
         Renderer::RaycastHit hit;
         performDDA(map, rayDirX, rayDirY, player.getX(), player.getY(), hit);
 
-        // Store wall distance in zBuffer for sprite rendering
+        // Store wall distance
         zBuffer[x] = hit.distance;
 
         // Calculate wall height and drawing bounds
@@ -148,110 +180,11 @@ void Renderer::render(const Player& player, const Map& map) {
         for (int y = drawEnd + 1; y < screenHeight; y++) buffer[y][x] = ' ';
     }
 
-    // Draw the game view buffer to left half of screen
+    // Draw the game view buffer to screen
     for (int y = 0; y < screenHeight; y++) {
-        mvaddstr(y, 0, buffer[y].substr(0, gameViewWidth).c_str());
+        mvaddstr(y, 0, buffer[y].c_str());
     }
 
-    // Draw the full-size map on right half with border
-    int mapStartX = gameViewWidth;
-    int mapDisplayWidth = screenWidth - gameViewWidth - 2; // Account for border
-    int mapDisplayHeight = screenHeight - 2; // Account for border
-
-    // Draw border
-    for (int x = mapStartX; x < screenWidth; x++) {
-        mvaddch(0, x, '-');
-        mvaddch(screenHeight - 1, x, '-');
-    }
-    for (int y = 0; y < screenHeight; y++) {
-        mvaddch(y, mapStartX, '|');
-        mvaddch(y, screenWidth - 1, '|');
-    }
-
-    // Draw map contents
-    for (int y = 0; y < map.getHeight(); y++) {
-        for (int x = 0; x < map.getWidth(); x++) {
-            char tile = ' ';
-            if (map.isWall(x, y)) {
-                tile = '#'; // Use solid block for walls
-            }
-            int displayY = 1 + y * mapDisplayHeight / map.getHeight();
-            int displayX = mapStartX + 1 + x * mapDisplayWidth / map.getWidth();
-            
-            // Ensure we don't write outside screen bounds
-            if (displayY >= 1 && displayY < screenHeight - 1 && displayX >= mapStartX + 1 && displayX < screenWidth - 1) {
-                mvaddch(displayY, displayX, tile);
-            }
-        }
-    }
-
-    // Draw player position on map with direction indicator
-    int playerMapX = mapStartX + 1 + static_cast<int>(player.getX() * mapDisplayWidth / map.getWidth());
-    int playerMapY = 1 + static_cast<int>(player.getY() * mapDisplayHeight / map.getHeight());
-    
-    // Ensure player marker is within screen bounds
-    if (playerMapY >= 1 && playerMapY < screenHeight - 1 && playerMapX >= mapStartX + 1 && playerMapX < screenWidth - 1) {
-        // Draw player direction indicator
-        char playerChar;
-        float dirX = player.getDirX();
-        float dirY = player.getDirY();
-        if (abs(dirX) > abs(dirY)) {
-            playerChar = (dirX > 0) ? '>' : '<';
-        } else {
-            playerChar = (dirY > 0) ? 'v' : '^';
-        }
-        mvaddch(playerMapY, playerMapX, playerChar);
-    }
-}
-
-void Renderer::renderMiniMap(const Player& player, const Map& map) {
-    int startY = screenHeight - MINIMAP_HEIGHT - 1;
-    int startX = (screenWidth - MINIMAP_WIDTH) / 2; // Center the mini-map horizontally
-    
-    // Draw mini-map border and contents
-    for (int y = 0; y < MINIMAP_HEIGHT; y++) {
-        for (int x = 0; x < MINIMAP_WIDTH; x++) {
-            // Draw border
-            if (y == 0 || y == MINIMAP_HEIGHT - 1) {
-                buffer[startY + y][startX + x] = '-';
-                continue;
-            }
-            if (x == 0 || x == MINIMAP_WIDTH - 1) {
-                buffer[startY + y][startX + x] = '|';
-                continue;
-            }
-            
-            // Draw map contents
-            int mapX = (x - 1) * (map.getWidth() - 2) / (MINIMAP_WIDTH - 2);
-            int mapY = (y - 1) * (map.getHeight() - 2) / (MINIMAP_HEIGHT - 2);
-            char tile = map.isWall(mapX, mapY) ? '#' : ' ';
-            buffer[startY + y][startX + x] = tile;
-        }
-    }
-}
-
-void Renderer::drawPlayerOnMiniMap(const Player& player) {
-    int startY = screenHeight - MINIMAP_HEIGHT - 1;
-    int startX = (screenWidth - MINIMAP_WIDTH) / 2;
-    int playerX = static_cast<int>(player.getX() * (MINIMAP_WIDTH - 2) / 24) + 1;
-    int playerY = static_cast<int>(player.getY() * (MINIMAP_HEIGHT - 2) / 24) + 1;
-    
-    if (playerX >= 1 && playerX < MINIMAP_WIDTH - 1 && playerY >= 1 && playerY < MINIMAP_HEIGHT - 1) {
-        // Determine player direction character based on direction vector
-        char playerChar;
-        float dirX = player.getDirX();
-        float dirY = player.getDirY();
-        
-        // Use more precise direction detection
-        float absX = std::abs(dirX);
-        float absY = std::abs(dirY);
-        
-        if (absX > absY) {
-            playerChar = (dirX > 0) ? '>' : '<';
-        } else {
-            playerChar = (dirY > 0) ? 'v' : '^';
-        }
-        
-        buffer[startY + playerY][startX + playerX] = playerChar;
-    }
+    // Render minimap
+    renderMinimap(player, map);
 }
