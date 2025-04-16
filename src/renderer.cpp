@@ -126,7 +126,7 @@ void Renderer::renderMinimap(const Player& player, const Map& map) {
             int mapY = static_cast<int>(player.getY()) + y - minimapSize/2;
             
             if (mapX >= 0 && mapX < map.getWidth() && mapY >= 0 && mapY < map.getHeight()) {
-                char ch = map.isWall(mapX, mapY) ? '#' : ' ';
+                char ch = map.isWall(mapX, mapY) ? '□' : ' ';
                 mvaddch(minimapY + 1 + y, minimapX + 1 + x, ch);
             }
         }
