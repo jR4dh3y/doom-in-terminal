@@ -3,7 +3,7 @@
 #include <thread>
 #include <stdexcept>
 
-Game::Game() : isRunning(false), screenWidth(80), screenHeight(24) {
+Game::Game() : isRunning(false), screenWidth(150), screenHeight(40) {
     player = std::make_unique<Player>(12.0f, 12.0f);
     map = std::make_unique<Map>();
     renderer = std::make_unique<Renderer>(screenWidth, screenHeight);
@@ -28,7 +28,7 @@ void Game::init() {
 }
 
 void Game::run() {
-    const int targetFPS = 30;
+    const int targetFPS = 60;
     const std::chrono::milliseconds frameTime(1000 / targetFPS);
 
     while (isRunning) {
@@ -59,7 +59,7 @@ void Game::processInput() {
 }
 
 void Game::update() {
-    player->update(1.0f / 30.0f);
+    player->update(1.0f / 60.0f);
 }
 
 void Game::render() {

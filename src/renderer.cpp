@@ -4,41 +4,17 @@
 #include <cstring>
 
 Renderer::Renderer(int screenWidth, int screenHeight)
-    : screenWidth(screenWidth), screenHeight(screenHeight) {
+    : screenWidth(screenWidth), screenHeight(screenHeight), zBuffer(nullptr) {
     buffer.resize(screenHeight, std::string(screenWidth, ' '));
     
-    // Initialize wall textures with different patterns
-    textures.resize(4); // Support 4 different wall types
-    for (auto& texture : textures) {
-        texture.resize(TEX_WIDTH * TEX_HEIGHT);
-    }
+    // Initialize wall texture with single pattern
+    textures.resize(1); // Use only one wall type
+    textures[0].resize(TEX_WIDTH * TEX_HEIGHT);
+    
+    // Initialize zBuffer
+    zBuffer = new float[screenWidth];
 
-    // Initialize sprite textures
-    spriteTextures.resize(2); // Support enemy and item sprites
-    for (auto& texture : spriteTextures) {
-        texture.resize(TEX_WIDTH * TEX_HEIGHT);
-    }
-
-    // Create enemy sprite pattern (skull-like)
-    for (int y = 0; y < TEX_HEIGHT; y++) {
-        for (int x = 0; x < TEX_WIDTH; x++) {
-            bool isSkull = (x >= TEX_WIDTH/4 && x < 3*TEX_WIDTH/4 && 
-                           y >= TEX_HEIGHT/4 && y < 3*TEX_HEIGHT/4) ||
-                          ((x-TEX_WIDTH/2)*(x-TEX_WIDTH/2) + (y-TEX_HEIGHT/2)*(y-TEX_HEIGHT/2) < 100);
-            spriteTextures[0][y * TEX_WIDTH + x] = isSkull ? '@' : ' ';
-        }
-    }
-
-    // Create item sprite pattern (star-like)
-    for (int y = 0; y < TEX_HEIGHT; y++) {
-        for (int x = 0; x < TEX_WIDTH; x++) {
-            bool isStar = abs(x - TEX_WIDTH/2) + abs(y - TEX_HEIGHT/2) < TEX_WIDTH/4 ||
-                         abs(x - TEX_WIDTH/2) * 2 + abs(y - TEX_HEIGHT/2) < TEX_WIDTH/4;
-            spriteTextures[1][y * TEX_WIDTH + x] = isStar ? '*' : ' ';
-        }
-    }
-
-    // Create brick pattern for texture 0
+    // Create brick pattern for the single wall texture
     for (int y = 0; y < TEX_HEIGHT; y++) {
         for (int x = 0; x < TEX_WIDTH; x++) {
             bool isBrick = ((y / 8) % 2 == 0 && (x / 16 + y / 8) % 2 == 0) ||
@@ -46,31 +22,12 @@ Renderer::Renderer(int screenWidth, int screenHeight)
             textures[0][y * TEX_WIDTH + x] = isBrick ? '#' : '=';
         }
     }
-
-    // Create vertical lines pattern for texture 1
-    for (int y = 0; y < TEX_HEIGHT; y++) {
-        for (int x = 0; x < TEX_WIDTH; x++) {
-            textures[1][y * TEX_WIDTH + x] = (x % 8 == 0) ? '|' : ':';
-        }
-    }
-
-    // Create checkerboard pattern for texture 2
-    for (int y = 0; y < TEX_HEIGHT; y++) {
-        for (int x = 0; x < TEX_WIDTH; x++) {
-            textures[2][y * TEX_WIDTH + x] = ((x / 8 + y / 8) % 2 == 0) ? '+' : '*';
-        }
-    }
-
-    // Create diagonal pattern for texture 3
-    for (int y = 0; y < TEX_HEIGHT; y++) {
-        for (int x = 0; x < TEX_WIDTH; x++) {
-            textures[3][y * TEX_WIDTH + x] = ((x + y) % 8 == 0) ? '/' : '.';
-        }
-    }
 }
 
 Renderer::~Renderer() {
     cleanup();
+    delete[] zBuffer;
+    zBuffer = nullptr;
 }
 
 void Renderer::init() {
@@ -153,7 +110,10 @@ void Renderer::render(const Player& player, const Map& map) {
     // Initialize zBuffer for sprite rendering
     if (!zBuffer) zBuffer = new float[screenWidth];
 
-    for (int x = 0; x < screenWidth; x++) {
+    // Split screen into two equal parts
+    int gameViewWidth = screenWidth / 2; // Left half for game view
+
+    for (int x = 0; x < gameViewWidth; x++) {
         // Calculate ray direction
         float rayDirX, rayDirY;
         calculateRay(player, x, rayDirX, rayDirY);
@@ -174,85 +134,124 @@ void Renderer::render(const Player& player, const Map& map) {
 
         // Draw the textured wall slice
         for (int y = drawStart; y <= drawEnd; y++) {
-            // Calculate texture Y coordinate
             float step = 1.0f * TEX_HEIGHT / lineHeight;
             float texPos = (y - drawStart) * step;
             hit.texY = static_cast<int>(texPos) & (TEX_HEIGHT - 1);
 
-            // Get texture pixel and apply shading based on distance and side
-            char texel = textures[hit.texNum][TEX_WIDTH * hit.texY + hit.texX];
+            char texel = textures[0][TEX_WIDTH * hit.texY + hit.texX];
             if (hit.side == 1) texel = getShaderChar(std::min(hit.distance * 1.5f, 8.0f));
             buffer[y][x] = texel;
         }
 
         // Draw floor and ceiling
-        for (int y = 0; y < drawStart; y++) {
-            buffer[y][x] = '.';
-        }
-        for (int y = drawEnd + 1; y < screenHeight; y++) {
-            buffer[y][x] = ' ';
-        }
+        for (int y = 0; y < drawStart; y++) buffer[y][x] = '.';
+        for (int y = drawEnd + 1; y < screenHeight; y++) buffer[y][x] = ' ';
     }
 
-    // Render sprites after walls
-    renderSprites(player);
-
-    // Draw the buffer to screen
+    // Draw the game view buffer to left half of screen
     for (int y = 0; y < screenHeight; y++) {
-        mvaddstr(y, 0, buffer[y].c_str());
+        mvaddstr(y, 0, buffer[y].substr(0, gameViewWidth).c_str());
     }
-}
 
+    // Draw the full-size map on right half with border
+    int mapStartX = gameViewWidth;
+    int mapDisplayWidth = screenWidth - gameViewWidth - 2; // Account for border
+    int mapDisplayHeight = screenHeight - 2; // Account for border
 
-void Renderer::sortSprites(const Player& player) {
-    // Calculate distances
-    for (auto& sprite : sprites) {
-        float dx = sprite.x - player.getX();
-        float dy = sprite.y - player.getY();
-        sprite.distance = dx * dx + dy * dy;
+    // Draw border
+    for (int x = mapStartX; x < screenWidth; x++) {
+        mvaddch(0, x, '-');
+        mvaddch(screenHeight - 1, x, '-');
     }
-    // Sort sprites from far to close
-    std::sort(sprites.begin(), sprites.end(),
-        [](const Sprite& a, const Sprite& b) { return a.distance > b.distance; });
-}
-void Renderer::renderSprites(const Player& player) {
-    sortSprites(player);
+    for (int y = 0; y < screenHeight; y++) {
+        mvaddch(y, mapStartX, '|');
+        mvaddch(y, screenWidth - 1, '|');
+    }
 
-    for (const auto& sprite : sprites) {
-        // Translate sprite position relative to camera
-        float spriteX = sprite.x - player.getX();
-        float spriteY = sprite.y - player.getY();
-
-        // Transform sprite with the inverse camera matrix
-        float invDet = 1.0f / (player.getPlaneX() * player.getDirY() - player.getDirX() * player.getPlaneY());
-        float transformX = invDet * (player.getDirY() * spriteX - player.getDirX() * spriteY);
-        float transformY = invDet * (-player.getPlaneY() * spriteX + player.getPlaneX() * spriteY);
-
-        int spriteScreenX = static_cast<int>((screenWidth / 2) * (1 + transformX / transformY));
-
-        // Calculate sprite dimensions on screen
-        int spriteHeight = std::abs(static_cast<int>(screenHeight / transformY));
-        int drawStartY = -spriteHeight / 2 + screenHeight / 2;
-        if (drawStartY < 0) drawStartY = 0;
-        int drawEndY = spriteHeight / 2 + screenHeight / 2;
-        if (drawEndY >= screenHeight) drawEndY = screenHeight - 1;
-
-        int spriteWidth = std::abs(static_cast<int>(screenHeight / transformY));
-        int drawStartX = -spriteWidth / 2 + spriteScreenX;
-        if (drawStartX < 0) drawStartX = 0;
-        int drawEndX = spriteWidth / 2 + spriteScreenX;
-        if (drawEndX >= screenWidth) drawEndX = screenWidth - 1;
-
-        // Render sprite columns
-        for (int stripe = drawStartX; stripe < drawEndX; stripe++) {
-            if (transformY > 0 && stripe >= 0 && stripe < screenWidth && transformY < zBuffer[stripe]) {
-                for (int y = drawStartY; y < drawEndY; y++) {
-                    int texY = ((y - drawStartY) * TEX_HEIGHT) / spriteHeight;
-                    int texX = ((stripe - drawStartX) * TEX_WIDTH) / spriteWidth;
-                    char texel = spriteTextures[sprite.texNum][texY * TEX_WIDTH + texX];
-                    if (texel != ' ') buffer[y][stripe] = texel;
-                }
+    // Draw map contents
+    for (int y = 0; y < map.getHeight(); y++) {
+        for (int x = 0; x < map.getWidth(); x++) {
+            char tile = ' ';
+            if (map.isWall(x, y)) {
+                tile = '#'; // Use solid block for walls
+            }
+            int displayY = 1 + y * mapDisplayHeight / map.getHeight();
+            int displayX = mapStartX + 1 + x * mapDisplayWidth / map.getWidth();
+            
+            // Ensure we don't write outside screen bounds
+            if (displayY >= 1 && displayY < screenHeight - 1 && displayX >= mapStartX + 1 && displayX < screenWidth - 1) {
+                mvaddch(displayY, displayX, tile);
             }
         }
+    }
+
+    // Draw player position on map with direction indicator
+    int playerMapX = mapStartX + 1 + static_cast<int>(player.getX() * mapDisplayWidth / map.getWidth());
+    int playerMapY = 1 + static_cast<int>(player.getY() * mapDisplayHeight / map.getHeight());
+    
+    // Ensure player marker is within screen bounds
+    if (playerMapY >= 1 && playerMapY < screenHeight - 1 && playerMapX >= mapStartX + 1 && playerMapX < screenWidth - 1) {
+        // Draw player direction indicator
+        char playerChar;
+        float dirX = player.getDirX();
+        float dirY = player.getDirY();
+        if (abs(dirX) > abs(dirY)) {
+            playerChar = (dirX > 0) ? '>' : '<';
+        } else {
+            playerChar = (dirY > 0) ? 'v' : '^';
+        }
+        mvaddch(playerMapY, playerMapX, playerChar);
+    }
+}
+
+void Renderer::renderMiniMap(const Player& player, const Map& map) {
+    int startY = screenHeight - MINIMAP_HEIGHT - 1;
+    int startX = (screenWidth - MINIMAP_WIDTH) / 2; // Center the mini-map horizontally
+    
+    // Draw mini-map border and contents
+    for (int y = 0; y < MINIMAP_HEIGHT; y++) {
+        for (int x = 0; x < MINIMAP_WIDTH; x++) {
+            // Draw border
+            if (y == 0 || y == MINIMAP_HEIGHT - 1) {
+                buffer[startY + y][startX + x] = '-';
+                continue;
+            }
+            if (x == 0 || x == MINIMAP_WIDTH - 1) {
+                buffer[startY + y][startX + x] = '|';
+                continue;
+            }
+            
+            // Draw map contents
+            int mapX = (x - 1) * (map.getWidth() - 2) / (MINIMAP_WIDTH - 2);
+            int mapY = (y - 1) * (map.getHeight() - 2) / (MINIMAP_HEIGHT - 2);
+            char tile = map.isWall(mapX, mapY) ? '#' : ' ';
+            buffer[startY + y][startX + x] = tile;
+        }
+    }
+}
+
+void Renderer::drawPlayerOnMiniMap(const Player& player) {
+    int startY = screenHeight - MINIMAP_HEIGHT - 1;
+    int startX = (screenWidth - MINIMAP_WIDTH) / 2;
+    int playerX = static_cast<int>(player.getX() * (MINIMAP_WIDTH - 2) / 24) + 1;
+    int playerY = static_cast<int>(player.getY() * (MINIMAP_HEIGHT - 2) / 24) + 1;
+    
+    if (playerX >= 1 && playerX < MINIMAP_WIDTH - 1 && playerY >= 1 && playerY < MINIMAP_HEIGHT - 1) {
+        // Determine player direction character based on direction vector
+        char playerChar;
+        float dirX = player.getDirX();
+        float dirY = player.getDirY();
+        
+        // Use more precise direction detection
+        float absX = std::abs(dirX);
+        float absY = std::abs(dirY);
+        
+        if (absX > absY) {
+            playerChar = (dirX > 0) ? '>' : '<';
+        } else {
+            playerChar = (dirY > 0) ? 'v' : '^';
+        }
+        
+        buffer[startY + playerY][startX + playerX] = playerChar;
     }
 }

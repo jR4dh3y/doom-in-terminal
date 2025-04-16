@@ -27,12 +27,12 @@ public:
     int screenHeight;
     std::vector<std::string> buffer;
     const char shaderChars[12] = " .:-=+*#%@";
-
-    struct Sprite {
-        float x, y;      // Position
-        int texNum;      // Texture number
-        float distance;  // Distance to player
-    };
+    
+    // Mini-map properties
+    static const int MINIMAP_WIDTH = 24;
+    static const int MINIMAP_HEIGHT = 24;
+    void renderMiniMap(const Player& player, const Map& map);
+    void drawPlayerOnMiniMap(const Player& player);
 
     struct RaycastHit {
         float distance;
@@ -47,10 +47,5 @@ public:
     static const int TEX_WIDTH = 64;
     static const int TEX_HEIGHT = 64;
     std::vector<std::vector<char>> textures;  // Store wall textures
-    std::vector<std::vector<char>> spriteTextures;  // Store sprite textures
-    std::vector<Sprite> sprites;  // Store sprite instances
-
-    void renderSprites(const Player& player);
-    void sortSprites(const Player& player);
-    float* zBuffer;  // Store wall distances for sprite rendering
+    float* zBuffer;  // Store wall distances
 };
